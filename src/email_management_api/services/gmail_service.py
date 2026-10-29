@@ -4,6 +4,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 load_dotenv(PROJECT_ROOT / ".env")
@@ -93,7 +94,7 @@ def fetch_unread_inbox_emails(max_results: int = 5):
     results = service.users().messages().list(
         userId="me", 
         maxResults=max_results, 
-        q=search_query  # Applied the filter here
+        q=search_query  
     ).execute()
     
     messages = results.get("messages", [])
@@ -114,12 +115,16 @@ def fetch_unread_inbox_emails(max_results: int = 5):
         subject = next((h["value"] for h in headers if h["name"] == "Subject"), "No Subject")
         sender = next((h["value"] for h in headers if h["name"] == "From"), "Unknown")
         
+        # Extract the Cc header (defaults to an empty string if no one is CC'd)
+        cc = next((h["value"] for h in headers if h["name"] == "Cc"), "")
+        
         body = get_email_body(payload)
         
         email_list.append({
             "id": msg["id"],
             "subject": subject,
             "from": sender,
+            "cc": cc,
             "body": body
         })
         
@@ -127,3 +132,104 @@ def fetch_unread_inbox_emails(max_results: int = 5):
     email_list.reverse() 
         
     return email_list
+
+def get_all_labels():
+    """Fetches all existing labels (folders and tags) from the Gmail account."""
+    service = get_gmail_service()
+    
+    results = service.users().labels().list(userId="me").execute()
+    return results.get("labels", [])
+
+
+def create_label(label_name: str):
+    """Creates a new label. Raises a ValueError if it already exists."""
+    service = get_gmail_service()
+    
+    new_label = {
+        "name": label_name,
+        "labelListVisibility": "labelShow",
+        "messageListVisibility": "show"
+    }
+    
+    try:
+        created_label = service.users().labels().create(userId="me", body=new_label).execute()
+        return created_label
+    except HttpError as error:
+        # 409 means Conflict (the label already exists)
+        if error.resp.status == 409:
+            raise ValueError(f"The label '{label_name}' already exists.")
+        raise ValueError(f"An error occurred while creating label: {error}")
+
+
+def update_email_labels(message_id: str, labels_to_add: list[str] = None, labels_to_remove: list[str] = None):
+    """
+    Updates the labels on a specific email. 
+    Accepts label NAMES (e.g. "Work", "INBOX"). 
+    Automatically creates missing labels before applying them.
+    """
+    service = get_gmail_service()
+    
+    labels_to_add = labels_to_add or []
+    labels_to_remove = labels_to_remove or []
+    
+    # 1. Get all current labels so we can map Names to internal Google IDs
+    existing_labels = get_all_labels()
+    name_to_id = {label["name"].lower(): label["id"] for label in existing_labels}
+    
+    add_label_ids = []
+    remove_label_ids = []
+    
+    # 2. Map 'Add' label names to IDs (and create if they don't exist)
+    for name in labels_to_add:
+        if not name:
+            continue
+        lower_name = name.lower()
+        if lower_name in name_to_id:
+            add_label_ids.append(name_to_id[lower_name])
+        else:
+            # Label doesn't exist, create it on the fly
+            new_label = create_label(name)
+            add_label_ids.append(new_label["id"])
+            name_to_id[lower_name] = new_label["id"] # Cache it in case it's referenced again
+            
+    # 3. Map 'Remove' label names to IDs
+    for name in labels_to_remove:
+        if not name:
+            continue
+        lower_name = name.lower()
+        if lower_name in name_to_id:
+            remove_label_ids.append(name_to_id[lower_name])
+            
+    # 4. Apply changes to the email
+    body = {
+        "addLabelIds": add_label_ids,
+        "removeLabelIds": remove_label_ids
+    }
+    
+    response = service.users().messages().modify(
+        userId="me", 
+        id=message_id, 
+        body=body
+    ).execute()
+    
+    return {
+        "id": response["id"],
+        "updated_label_ids": response.get("labelIds", []),
+        "status": "success"
+    }
+
+def trash_email(message_id: str):
+    """
+    Moves an email to the Trash. 
+    Can be recovered within 30 days.
+    Works with your current 'gmail.modify' scope.
+    """
+    service = get_gmail_service()
+    
+    # The API returns an updated message object on success
+    response = service.users().messages().trash(userId="me", id=message_id).execute()
+    
+    return {
+        "id": response["id"],
+        "status": "moved_to_trash"
+    }
