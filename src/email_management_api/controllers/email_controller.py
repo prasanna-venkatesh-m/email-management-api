@@ -1,10 +1,17 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
+from email_management_api.services.gmail_service import fetch_latest_emails
 
 email_router = APIRouter(
     prefix="/email",
     tags=["Emails"],
 )
 
-@email_router.get(path="/")
-async def get_email_token():
-    return "Hello"
+@email_router.get("/list")
+async def get_emails(limit: int = 5):
+    try:
+        emails = fetch_latest_emails(max_results=limit)
+        return {"status": "success", "data": emails}
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch emails: {str(exc)}")
