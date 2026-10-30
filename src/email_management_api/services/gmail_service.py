@@ -13,7 +13,10 @@ CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 REFRESH_TOKEN = os.getenv("GOOGLE_REFRESH_TOKEN")
 
-SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
+SCOPES = [
+    "https://www.googleapis.com/auth/gmail.modify",
+    "https://www.googleapis.com/auth/gmail.labels"
+]
 
 def get_gmail_service():
     if not REFRESH_TOKEN:
