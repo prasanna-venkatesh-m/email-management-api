@@ -15,7 +15,8 @@ REFRESH_TOKEN = os.getenv("GOOGLE_REFRESH_TOKEN")
 
 SCOPES = [
     "https://www.googleapis.com/auth/gmail.modify",
-    "https://www.googleapis.com/auth/gmail.labels"
+    "https://www.googleapis.com/auth/gmail.labels",
+    "https://www.googleapis.com/auth/gmail.readonly"
 ]
 
 def get_gmail_service():
