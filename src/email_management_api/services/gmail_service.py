@@ -145,12 +145,18 @@ def get_all_labels():
     return results.get("labels", [])
 
 
-def create_label(label_name: str):
-    """Creates a new label. Raises a ValueError if it already exists."""
+def create_label(label_path: str):
+    """
+    Creates a label or nested sub-label.
+    Use forward slashes for nesting: e.g., 'Work/Invoices' or 'Personal/Finance/2026'.
+    """
     service = get_gmail_service()
     
+    # Strip leading/trailing slashes and whitespace
+    clean_name = label_path.strip().strip("/")
+    
     new_label = {
-        "name": label_name,
+        "name": clean_name,
         "labelListVisibility": "labelShow",
         "messageListVisibility": "show"
     }
@@ -159,10 +165,58 @@ def create_label(label_name: str):
         created_label = service.users().labels().create(userId="me", body=new_label).execute()
         return created_label
     except HttpError as error:
-        # 409 means Conflict (the label already exists)
         if error.resp.status == 409:
-            raise ValueError(f"The label '{label_name}' already exists.")
+            raise ValueError(f"The label '{clean_name}' already exists.")
         raise ValueError(f"An error occurred while creating label: {error}")
+
+def create_label_hierarchy(label_path: str) -> dict:
+    """
+    Creates nested sub-labels step-by-step so each tier expands one by one.
+    Example: 'Work/Projects/ClientA' creates:
+      1. 'Work'
+      2. 'Work/Projects'
+      3. 'Work/Projects/ClientA'
+    Returns the dict of the final (deepest) created label.
+    """
+    service = get_gmail_service()
+    
+    # 1. Fetch existing labels to avoid redundant API calls
+    existing_labels = service.users().labels().list(userId="me").execute().get("labels", [])
+    existing_names = {label["name"].lower(): label for label in existing_labels}
+
+    # 2. Split path segments: 'Work/Projects/ClientA' -> ['Work', 'Projects', 'ClientA']
+    parts = [segment.strip() for segment in label_path.strip("/").split("/") if segment.strip()]
+    if not parts:
+        raise ValueError("Invalid label path provided.")
+
+    current_path = ""
+    last_label_obj = None
+
+    for part in parts:
+        current_path = f"{current_path}/{part}" if current_path else part
+        lookup_key = current_path.lower()
+
+        if lookup_key in existing_names:
+            last_label_obj = existing_names[lookup_key]
+            continue
+
+        # 3. Create the missing level
+        body = {
+            "name": current_path,
+            "labelListVisibility": "labelShow",
+            "messageListVisibility": "show"
+        }
+        
+        try:
+            created = service.users().labels().create(userId="me", body=body).execute()
+            existing_names[lookup_key] = created
+            last_label_obj = created
+        except HttpError as err:
+            if err.resp.status == 409:  # Already created concurrently
+                continue
+            raise ValueError(f"Failed to create step '{current_path}': {err}")
+
+    return last_label_obj
 
 
 def update_email_labels(message_id: str, labels_to_add: list[str] = None, labels_to_remove: list[str] = None):

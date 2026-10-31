@@ -1,5 +1,5 @@
-from email_management_api.services.gmail_service import create_label, get_all_labels
 from langchain_core.tools import tool
+from email_management_api.services.gmail_service import get_all_labels, create_label_hierarchy
 
 @tool
 def check_existing_labels() -> list[str]:
@@ -8,6 +8,16 @@ def check_existing_labels() -> list[str]:
     return [label["name"] for label in labels]
 
 @tool
-def create_new_label(label_name: str) -> dict:
-    """Use this tool to create a new Gmail label if the label you want to apply does not exist."""
-    return create_label(label_name)
+def create_new_label(name: str = None, label_path: str = None, **kwargs) -> dict:
+    """
+    Creates expandable nested labels step-by-step in Gmail.
+    Format paths using forward slashes: 'Category/SubCategory/Topic'.
+    Every level is created individually so it can be expanded tier by tier.
+    Examples:
+      - 'Work/Clients/Acme'
+      - 'Notifications/Azure/BuildSuccess'
+    """
+    target = name or label_path or kwargs.get("label_name")
+    if not target:
+        raise ValueError("Missing label path or name argument.")
+    return create_label_hierarchy(target)
