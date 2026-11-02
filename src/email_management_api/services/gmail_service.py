@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+from email.message import EmailMessage
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 load_dotenv(PROJECT_ROOT / ".env")
@@ -291,3 +292,91 @@ def trash_email(message_id: str):
         "id": response["id"],
         "status": "moved_to_trash"
     }
+
+
+def _create_raw_message(to: str, subject: str, body: str, cc: str = "", bcc: str = "", thread_id: str = None) -> dict:
+    """Helper to construct an RFC 2822 compliant message payload for the Gmail API."""
+    message = EmailMessage()
+    message.set_content(body)
+    message["To"] = to
+    message["Subject"] = subject
+
+    if cc:
+        message["Cc"] = cc
+    if bcc:
+        message["Bcc"] = bcc
+
+    # Threading support: keeps responses within an existing email thread
+    if thread_id:
+        message["In-Reply-To"] = thread_id
+        message["References"] = thread_id
+
+    # Gmail API requires URL-safe base64 encoded strings
+    encoded_message = base64.urlsafe_b64encode(message.as_bytes()).decode("utf-8")
+    
+    payload = {"raw": encoded_message}
+    if thread_id:
+        payload["threadId"] = thread_id
+
+    return payload
+
+
+def create_draft(to: str, subject: str, body: str, cc: str = "", bcc: str = "", thread_id: str = None) -> dict:
+    """
+    Creates a new draft in Gmail without sending it.
+    Can be linked to an existing conversation by passing thread_id.
+    """
+    service = get_gmail_service()
+    raw_message = _create_raw_message(to=to, subject=subject, body=body, cc=cc, bcc=bcc, thread_id=thread_id)
+
+    draft_body = {"message": raw_message}
+
+    try:
+        draft = service.users().drafts().create(userId="me", body=draft_body).execute()
+        return {
+            "draft_id": draft["id"],
+            "message_id": draft["message"]["id"],
+            "thread_id": draft["message"].get("threadId"),
+            "status": "draft_created"
+        }
+    except HttpError as error:
+        raise ValueError(f"Failed to create draft: {error}")
+
+
+def send_email(to: str, subject: str, body: str, cc: str = "", bcc: str = "", thread_id: str = None) -> dict:
+    """
+    Directly sends an email through the authenticated Gmail account.
+    """
+    service = get_gmail_service()
+    raw_message = _create_raw_message(to=to, subject=subject, body=body, cc=cc, bcc=bcc, thread_id=thread_id)
+
+    try:
+        sent_message = service.users().messages().send(userId="me", body=raw_message).execute()
+        return {
+            "id": sent_message["id"],
+            "thread_id": sent_message.get("threadId"),
+            "label_ids": sent_message.get("labelIds", []),
+            "status": "sent"
+        }
+    except HttpError as error:
+        raise ValueError(f"Failed to send email: {error}")
+
+
+def send_draft(draft_id: str) -> dict:
+    """
+    Sends an existing draft by its draft_id.
+    """
+    service = get_gmail_service()
+    
+    try:
+        sent_message = service.users().drafts().send(
+            userId="me", 
+            body={"id": draft_id}
+        ).execute()
+        return {
+            "id": sent_message["id"],
+            "thread_id": sent_message.get("threadId"),
+            "status": "draft_sent"
+        }
+    except HttpError as error:
+        raise ValueError(f"Failed to send draft '{draft_id}': {error}")
