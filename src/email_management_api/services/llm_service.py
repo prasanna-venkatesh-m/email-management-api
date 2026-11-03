@@ -70,10 +70,12 @@
 import json
 from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
 from email_management_api.prompts.email_classification_prompt import EMAIL_CLASSIFICATION_PROMPT
+from email_management_api.prompts.email_reply_prompt import EMAIL_REPLY_PROMPT
 from email_management_api.clients.openrouter_client import get_openrouter_client
 from email_management_api.clients.gemini_client import get_gemini_client
 from email_management_api.tools.gmail_tools import create_new_label, check_existing_labels
 from email_management_api.models.email_classification_model import EmailClassification
+from email_management_api.models.email_reply_model import EmailReply
 
 
 def classify_mail(subject: str, body: str, max_iterations: int = 6) -> EmailClassification:
@@ -181,3 +183,32 @@ def classify_mail(subject: str, body: str, max_iterations: int = 6) -> EmailClas
     ]
 
     return structured_llm.invoke(final_payload)
+
+def generate_email_reply(email_id: str,from_email: str,cc: list[str],subject: str,body: str, user_context: str | None = None) -> EmailReply:
+        llm = get_gemini_client()
+        structured_llm = llm.with_structured_output(EmailReply)
+        safe_body = body[:5000] + ("..." if len(body) > 5000 else "")
+        messages = [
+            SystemMessage(content=EMAIL_REPLY_PROMPT),
+            HumanMessage(
+                content=f"""
+                Email ID: {email_id}
+
+                From: {from_email}
+
+                CC: {json.dumps(cc)}
+
+                Subject: {subject}
+
+                Body:
+                {safe_body}
+
+                Additional instructions from the user:
+                {user_context if user_context else "No additional instructions. Generate a suitable reply based on the email context."}
+
+                Generate an appropriate reply draft following the user's additional instructions, if provided.
+                """
+            )
+        ]
+
+        return structured_llm.invoke(messages)
