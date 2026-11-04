@@ -8,7 +8,7 @@ def get_gemini_client() -> ChatGoogleGenerativeAI:
         raise ValueError("GEMINI_API_KEY is missing from environment variables.")
 
     return ChatGoogleGenerativeAI(
-        model="gemini-3.7-flash",  # Current primary model for tools & structured output
+        model="gemini-3.8-flash",  # Current primary model for tools & structured output
         temperature=0,
         api_key=api_key,
     )
