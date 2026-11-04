@@ -116,9 +116,13 @@ def fetch_unread_inbox_emails(max_results: int = 5):
         
         payload = msg_data.get("payload", {})
         headers = payload.get("headers", [])
+
+        def get_header(name: str, default: str = "") -> str:
+            return next((h["value"] for h in headers if h["name"].lower() == name.lower()), default)
         
         subject = next((h["value"] for h in headers if h["name"] == "Subject"), "No Subject")
         sender = next((h["value"] for h in headers if h["name"] == "From"), "Unknown")
+        message_id_header = get_header("Message-ID", "")
         
         # Extract the Cc header (defaults to an empty string if no one is CC'd)
         cc = next((h["value"] for h in headers if h["name"] == "Cc"), "")
@@ -127,6 +131,8 @@ def fetch_unread_inbox_emails(max_results: int = 5):
         
         email_list.append({
             "id": msg["id"],
+            "threadId": msg_data.get("threadId") or msg.get("threadId"),
+            "message_id_header": message_id_header,
             "subject": subject,
             "from": sender,
             "cc": cc,
