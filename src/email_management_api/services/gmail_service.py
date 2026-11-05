@@ -226,57 +226,86 @@ def create_label_hierarchy(label_path: str) -> dict:
     return last_label_obj
 
 
-def update_email_labels(message_id: str, labels_to_add: list[str] = None, labels_to_remove: list[str] = None):
+
+def update_email_labels(
+    message_id: str,
+    labels_to_add: list[str] = None,
+    labels_to_remove: list[str] = None
+):
     """
-    Updates the labels on a specific email. 
-    Accepts label NAMES (e.g. "Work", "INBOX"). 
+    Updates labels on a specific email.
+    Accepts label NAMES (e.g. "Work", "INBOX").
     Automatically creates missing labels before applying them.
+    Skips the API call if there are no valid label updates.
     """
     service = get_gmail_service()
-    
+
     labels_to_add = labels_to_add or []
     labels_to_remove = labels_to_remove or []
-    
-    # 1. Get all current labels so we can map Names to internal Google IDs
+
+    # 1. Get all current labels
     existing_labels = get_all_labels()
-    name_to_id = {label["name"].lower(): label["id"] for label in existing_labels}
-    
+    name_to_id = {
+        label["name"].lower(): label["id"]
+        for label in existing_labels
+    }
+
     add_label_ids = []
     remove_label_ids = []
-    
-    # 2. Map 'Add' label names to IDs (and create if they don't exist)
+
+    # 2. Map Add label names to IDs (create if missing)
     for name in labels_to_add:
-        if not name:
+        if not name or not name.strip():
             continue
-        lower_name = name.lower()
+
+        lower_name = name.strip().lower()
+
         if lower_name in name_to_id:
             add_label_ids.append(name_to_id[lower_name])
         else:
-            # Label doesn't exist, create it on the fly
-            new_label = create_label(name)
+            new_label = create_label(name.strip())
             add_label_ids.append(new_label["id"])
-            name_to_id[lower_name] = new_label["id"] # Cache it in case it's referenced again
-            
-    # 3. Map 'Remove' label names to IDs
+            name_to_id[lower_name] = new_label["id"]
+
+    # 3. Map Remove label names to IDs
     for name in labels_to_remove:
-        if not name:
+        if not name or not name.strip():
             continue
-        lower_name = name.lower()
+
+        lower_name = name.strip().lower()
+
         if lower_name in name_to_id:
             remove_label_ids.append(name_to_id[lower_name])
-            
-    # 4. Apply changes to the email
-    body = {
-        "addLabelIds": add_label_ids,
-        "removeLabelIds": remove_label_ids
-    }
-    
+
+    # Remove duplicates
+    add_label_ids = list(set(add_label_ids))
+    remove_label_ids = list(set(remove_label_ids))
+
+    # 4. Prevent Gmail API 400 error
+    if not add_label_ids and not remove_label_ids:
+        return {
+            "id": message_id,
+            "updated_label_ids": [],
+            "status": "skipped",
+            "message": "No label updates provided."
+        }
+
+    # 5. Build request body with only available updates
+    body = {}
+
+    if add_label_ids:
+        body["addLabelIds"] = add_label_ids
+
+    if remove_label_ids:
+        body["removeLabelIds"] = remove_label_ids
+
+    # 6. Apply changes
     response = service.users().messages().modify(
-        userId="me", 
-        id=message_id, 
+        userId="me",
+        id=message_id,
         body=body
     ).execute()
-    
+
     return {
         "id": response["id"],
         "updated_label_ids": response.get("labelIds", []),
