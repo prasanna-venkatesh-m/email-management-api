@@ -9,6 +9,6 @@ def get_groq_client() -> ChatGroq:
         
     return ChatGroq(
         temperature=0,
-        model_name="meta-llama/llama-prompt-guard-2-22m",
+        model_name="openai/gpt-oss-120b",
         api_key=api_key,
     )
