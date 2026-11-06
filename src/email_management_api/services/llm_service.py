@@ -73,6 +73,7 @@ from email_management_api.prompts.email_classification_prompt import EMAIL_CLASS
 from email_management_api.prompts.email_reply_prompt import EMAIL_REPLY_PROMPT
 from email_management_api.clients.openrouter_client import get_openrouter_client
 from email_management_api.clients.gemini_client import get_gemini_client
+from email_management_api.clients.groq_client import get_groq_client
 from email_management_api.tools.gmail_tools import create_new_label, check_existing_labels
 from email_management_api.models.email_classification_model import EmailClassification
 from email_management_api.models.email_reply_model import EmailReply
@@ -80,7 +81,9 @@ from email_management_api.models.email_reply_model import EmailReply
 
 def classify_mail(subject: str, body: str, max_iterations: int = 6) -> EmailClassification:
     # Works interchangeably with get_gemini_client(), get_openrouter_client(), or get_groq_client()
-    llm = get_gemini_client()
+    # llm = get_gemini_client()
+    # llm = get_openrouter_client()
+    llm = get_groq_client()
     
     tools = [check_existing_labels, create_new_label]
     tool_map = {tool.name: tool for tool in tools}
@@ -185,7 +188,10 @@ def classify_mail(subject: str, body: str, max_iterations: int = 6) -> EmailClas
     return structured_llm.invoke(final_payload)
 
 def generate_email_reply(email_id: str,from_email: str,cc: list[str],subject: str,body: str, user_context: str | None = None) -> EmailReply:
-        llm = get_gemini_client()
+        # llm = get_gemini_client()
+        # llm = get_openrouter_client()
+        llm = get_groq_client()
+        
         structured_llm = llm.with_structured_output(EmailReply)
         safe_body = body[:5000] + ("..." if len(body) > 5000 else "")
         messages = [
