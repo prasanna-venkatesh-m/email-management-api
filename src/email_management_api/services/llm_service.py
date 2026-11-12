@@ -90,14 +90,16 @@ from email_management_api.models.email_reply_model import EmailReply
 
 
 def classify_mail(
+    fromMailId: str,
     subject: str,
     body: str,
+    existing_labels : str,
     max_iterations: int = 6
 ) -> EmailClassification:
 
     llm = get_groq_client()
 
-    tools = [check_existing_labels, create_new_label]
+    tools = [create_new_label]
     tool_map = {tool.name: tool for tool in tools}
 
     safe_body = body[:3000] + ("..." if len(body) > 3000 else "")
@@ -106,7 +108,7 @@ def classify_mail(
 
     messages = [
         SystemMessage(content=EMAIL_CLASSIFICATION_PROMPT),
-        HumanMessage(content=f"Subject: {subject}\n\nBody: {safe_body}"),
+        HumanMessage(content=f"Existing Labels: {existing_labels}\n\n From: {fromMailId}\n\n Subject: {subject}\n\nBody: {safe_body}"),
     ]
 
     labels_checked = False
