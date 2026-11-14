@@ -1,3 +1,4 @@
+from email.utils import parseaddr
 import logging
 from email_management_api.services.gmail_service import (
     fetch_unread_inbox_emails,
@@ -12,6 +13,11 @@ from email_management_api.services.llm_service import (
 
 logger = logging.getLogger(__name__)
 
+def get_sender_type(from_email: str) -> str:
+    _, email_address = parseaddr(from_email or "")
+    domain = email_address.split("@")[-1].lower() if "@" in email_address else ""
+
+    return "internal" if domain == "fujiko.com" else "external"
 
 def classify_and_organize_emails(max_results: int = 5, force_draft: bool = False):
     unread_mails = fetch_unread_inbox_emails(max_results=max_results)
@@ -19,14 +25,17 @@ def classify_and_organize_emails(max_results: int = 5, force_draft: bool = False
     label_names = ", ".join(label["name"] for label in all_labels)
     print(label_names)
     results = []
-    draft_mails = []
+    draft_mails = [] 
 
     for mail in unread_mails:
+        sender_type = get_sender_type(mail.get("from", ""))
+        print(sender_type)
         classification = classify_mail(
             fromMailId=mail.get("from", ""),
             subject=mail.get("subject", ""),
             body=mail.get("body", ""),
-            existing_labels=label_names
+            existing_labels=label_names,
+            sender_type=sender_type,
         )
 
         mail["category"] = classification.category
