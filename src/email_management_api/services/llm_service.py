@@ -94,6 +94,7 @@ def classify_mail(
     subject: str,
     body: str,
     existing_labels : str,
+    sender_type: str,
     max_iterations: int = 6
 ) -> EmailClassification:
 
@@ -108,7 +109,7 @@ def classify_mail(
 
     messages = [
         SystemMessage(content=EMAIL_CLASSIFICATION_PROMPT),
-        HumanMessage(content=f"Existing Labels: {existing_labels}\n\n From: {fromMailId}\n\n Subject: {subject}\n\nBody: {safe_body}"),
+        HumanMessage(content=f"Existing Labels: {existing_labels}\n\n From: {fromMailId}\n\n  SENDER_TYPE: {sender_type}\n\n Subject: {subject}\n\nBody: {safe_body}"),
     ]
 
     labels_checked = False
