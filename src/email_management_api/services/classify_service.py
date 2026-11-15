@@ -22,7 +22,13 @@ def get_sender_type(from_email: str) -> str:
 def classify_and_organize_emails(max_results: int = 5, force_draft: bool = False):
     unread_mails = fetch_unread_inbox_emails(max_results=max_results)
     all_labels = get_all_labels()
-    label_names = ", ".join(label["name"] for label in all_labels)
+    user_labels = [
+        label["name"]
+        for label in all_labels
+        if label.get("type") == "user"
+    ]
+
+    label_names = ", ".join(user_labels)
     print(label_names)
     results = []
     draft_mails = [] 
@@ -42,7 +48,8 @@ def classify_and_organize_emails(max_results: int = 5, force_draft: bool = False
         mail["labels_to_add"] = classification.labels_to_add
         mail["labels_to_remove"] = classification.labels_to_remove
         mail["is_action_required"] = classification.is_action_required
-
+        print("Labels to ADD:", classification.labels_to_add)
+        print("Labels to REMOVE:", classification.labels_to_remove)
         # Apply labels in Gmail
         update_email_labels(
             message_id=mail["id"],

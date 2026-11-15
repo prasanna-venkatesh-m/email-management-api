@@ -66,7 +66,6 @@
 #         *messages[1:],
 #     ])
 
-
 import json
 
 from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
@@ -74,6 +73,7 @@ from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
 from email_management_api.prompts.email_classification_prompt import (
     EMAIL_CLASSIFICATION_PROMPT,
 )
+
 from email_management_api.prompts.email_reply_prompt import (
     EMAIL_REPLY_PROMPT,
 )
@@ -88,12 +88,18 @@ from email_management_api.tools.gmail_tools import (
 from email_management_api.models.email_classification_model import EmailClassification
 from email_management_api.models.email_reply_model import EmailReply
 
+# NEW: Observability imports
+from email_management_api.services.observability_service import (
+    invoke_observed,
+    observe_tool_call,
+)
+
 
 def classify_mail(
     fromMailId: str,
     subject: str,
     body: str,
-    existing_labels : str,
+    existing_labels: str,
     sender_type: str,
     max_iterations: int = 6
 ) -> EmailClassification:
@@ -109,7 +115,7 @@ def classify_mail(
 
     messages = [
         SystemMessage(content=EMAIL_CLASSIFICATION_PROMPT),
-        HumanMessage(content=f"Existing Labels: {existing_labels}\n\n From: {fromMailId}\n\n  SENDER_TYPE: {sender_type}\n\n Subject: {subject}\n\nBody: {safe_body}"),
+        HumanMessage(content=f"Existing Labels: {existing_labels}\n\n From: {fromMailId}\n\n SENDER_TYPE: {sender_type}\n\n Subject: {subject}\n\nBody: {safe_body}"),
     ]
 
     labels_checked = False
@@ -117,7 +123,13 @@ def classify_mail(
     # PHASE 1: Tool execution loop
     for _ in range(max_iterations):
 
-        response = llm_with_tools.invoke(messages)
+        # OBSERVABILITY: Measure LLM invocation
+        response = invoke_observed(
+            llm_with_tools,
+            messages,
+            operation="classification"
+        )
+
         messages.append(response)
 
         tool_calls = getattr(response, "tool_calls", None) or []
@@ -168,7 +180,11 @@ def classify_mail(
 
             try:
 
-                result = tool_map[tool_name].invoke(tool_args)
+                # OBSERVABILITY: Measure tool execution
+                result = observe_tool_call(
+                    tool_name,
+                    lambda: tool_map[tool_name].invoke(tool_args)
+                )
 
                 if tool_name == "check_existing_labels":
                     labels_checked = True
@@ -176,7 +192,7 @@ def classify_mail(
                 messages.append(
                     ToolMessage(
                         content=json.dumps(result, default=str),
-                        tool_call_id=call_id,
+                        tool_call_id=tool_call["id"],
                     )
                 )
 
@@ -185,7 +201,7 @@ def classify_mail(
                 messages.append(
                     ToolMessage(
                         content=f"Tool execution failed: {str(err)}",
-                        tool_call_id=call_id,
+                        tool_call_id=tool_call["id"],
                     )
                 )
 
@@ -194,7 +210,11 @@ def classify_mail(
 
     if not labels_checked:
         try:
-            verified_labels = check_existing_labels.invoke({})
+            # OBSERVABILITY: Measure fallback tool execution
+            verified_labels = observe_tool_call(
+                "check_existing_labels",
+                lambda: check_existing_labels.invoke({})
+            )
         except Exception:
             verified_labels = []
 
@@ -211,17 +231,18 @@ def classify_mail(
 
     final_payload = [
         SystemMessage(
-            content=(
-                "You are an email classification assistant. "
-                "Return the final email classification using "
-                "the EmailClassification schema. "
-                "Use only verified existing or successfully created labels."
-            )
+            content="Return the final email classification using the EmailClassification schema. Use only verified existing or successfully created labels."
         ),
         HumanMessage(content=final_user_content),
     ]
 
-    return structured_llm.invoke(final_payload)
+    # OBSERVABILITY: Measure structured classification
+    return invoke_observed(
+        structured_llm,
+        final_payload,
+        operation="classification_structured_output",
+        structured_output=True
+    )
 
 
 def generate_email_reply(
@@ -267,4 +288,10 @@ Generate an appropriate reply draft following the user's additional instructions
         ),
     ]
 
-    return structured_llm.invoke(messages)
+    # OBSERVABILITY: Measure reply generation
+    return invoke_observed(
+        structured_llm,
+        messages,
+        operation="reply_generation",
+        structured_output=True
+    )
