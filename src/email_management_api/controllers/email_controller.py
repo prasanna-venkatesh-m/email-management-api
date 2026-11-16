@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from email_management_api.services.gmail_service import fetch_latest_emails, fetch_unread_inbox_emails,get_all_labels, create_label
+from utils.excel_helper import save_emails_to_excel
 
 email_router = APIRouter(
     prefix="/email",
@@ -15,6 +16,15 @@ async def get_emails(limit: int = 5):
         raise HTTPException(status_code=500, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to fetch emails: {str(exc)}")
+
+@email_router.get("/export-excel")
+async def export_emails_controller(limit: int = 1000):
+    try:
+        emails = fetch_latest_emails(max_results=limit)
+        result = save_emails_to_excel(emails,filename="emails.xlsx")
+        return result
+    except Exception as exc:
+        raise Exception(f"Email export failed: {str(exc)}")
 
 @email_router.get("/unread-mails")
 async def unread_emails(limit: int = 5):
