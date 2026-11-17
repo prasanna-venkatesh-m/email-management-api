@@ -18,9 +18,10 @@ async def get_emails(limit: int = 5):
         raise HTTPException(status_code=500, detail=f"Failed to fetch emails: {str(exc)}")
 
 @email_router.get("/export-excel")
-async def export_emails_controller(limit: int = 1000):
+async def export_emails_controller(limit: int = 2000):
     try:
         emails = fetch_latest_emails(max_results=limit)
+        print(f"Total emails fetched: {len(emails)}")
         result = save_emails_to_excel(emails,filename="emails.xlsx")
         return result
     except Exception as exc:

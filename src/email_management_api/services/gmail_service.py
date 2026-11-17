@@ -55,39 +55,67 @@ def get_email_body(payload):
             
     return "No plain text body found."
 
-def fetch_latest_emails(max_results: int = 5):
+def fetch_latest_emails(max_results: int = 2000):
     service = get_gmail_service()
-    
-    results = service.users().messages().list(userId="me", maxResults=max_results).execute()
-    messages = results.get("messages", [])
-
-    if not messages:
-        return []
 
     email_list = []
-    
-    for msg in messages:
-        # Changed format to 'full' to get the body payload
-        msg_data = service.users().messages().get(
-            userId="me", id=msg["id"], format="full"
+    next_page_token = None
+
+    while len(email_list) < max_results:
+
+        remaining = max_results - len(email_list)
+
+        results = service.users().messages().list(
+            userId="me",
+            maxResults=min(500, remaining),
+            pageToken=next_page_token
         ).execute()
-        
-        payload = msg_data.get("payload", {})
-        headers = payload.get("headers", [])
-        
-        subject = next((h["value"] for h in headers if h["name"] == "Subject"), "No Subject")
-        sender = next((h["value"] for h in headers if h["name"] == "From"), "Unknown")
-        
-        # Extract and decode the body
-        body = get_email_body(payload)
-        
-        email_list.append({
-            "id": msg["id"],
-            "subject": subject,
-            "from": sender,
-            "body": body
-        })
-        
+
+        messages = results.get("messages", [])
+
+        if not messages:
+            break
+
+        for msg in messages:
+
+            msg_data = service.users().messages().get(
+                userId="me",
+                id=msg["id"],
+                format="full"
+            ).execute()
+
+            payload = msg_data.get("payload", {})
+            headers = payload.get("headers", [])
+
+            subject = next(
+                (h["value"] for h in headers if h["name"] == "Subject"),
+                "No Subject"
+            )
+
+            sender = next(
+                (h["value"] for h in headers if h["name"] == "From"),
+                "Unknown"
+            )
+
+            body = get_email_body(payload)
+
+            email_list.append({
+                "id": msg["id"],
+                "subject": subject,
+                "from": sender,
+                "body": body
+            })
+
+            if len(email_list) >= max_results:
+                break
+
+        next_page_token = results.get("nextPageToken")
+
+        if not next_page_token:
+            break
+
+    print(f"Total emails fetched: {len(email_list)}")
+
     return email_list
 
 def fetch_unread_inbox_emails(max_results: int = 5):
