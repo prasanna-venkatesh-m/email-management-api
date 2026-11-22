@@ -65,33 +65,36 @@
 #         SystemMessage(content="Return the final email classification using the EmailClassification schema. Use only verified existing or successfully created labels."),
 #         *messages[1:],
 #     ])
-
 import json
 
-from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
-
-from email_management_api.prompts.email_classification_prompt import (
-    EMAIL_CLASSIFICATION_PROMPT,
-)
-
-from email_management_api.prompts.email_reply_prompt import (
-    EMAIL_REPLY_PROMPT,
+from langchain_core.messages import (
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
 )
 
 from email_management_api.clients.groq_client import get_groq_client
 
-from email_management_api.tools.gmail_tools import (
-    create_new_label,
-    check_existing_labels,
+from email_management_api.models.email_classification_model import (
+    EmailClassification,
 )
-
-from email_management_api.models.email_classification_model import EmailClassification
 from email_management_api.models.email_reply_model import EmailReply
 
-# NEW: Observability imports
+from email_management_api.prompts.email_classification_prompt import (
+    EMAIL_CLASSIFICATION_PROMPT,
+)
+from email_management_api.prompts.email_reply_prompt import (
+    EMAIL_REPLY_PROMPT,
+)
+
 from email_management_api.services.observability_service import (
     invoke_observed,
     observe_tool_call,
+)
+
+from email_management_api.tools.gmail_tools import (
+    check_existing_labels,
+    create_new_label,
 )
 
 
@@ -101,7 +104,7 @@ def classify_mail(
     body: str,
     existing_labels: str,
     sender_type: str,
-    max_iterations: int = 6
+    max_iterations: int = 6,
 ) -> EmailClassification:
 
     llm = get_groq_client()
@@ -115,7 +118,15 @@ def classify_mail(
 
     messages = [
         SystemMessage(content=EMAIL_CLASSIFICATION_PROMPT),
-        HumanMessage(content=f"Existing Labels: {existing_labels}\n\n From: {fromMailId}\n\n SENDER_TYPE: {sender_type}\n\n Subject: {subject}\n\nBody: {safe_body}"),
+        HumanMessage(
+            content=(
+                f"Existing Labels: {existing_labels}\n\n"
+                f"From: {fromMailId}\n\n"
+                f"SENDER_TYPE: {sender_type}\n\n"
+                f"Subject: {subject}\n\n"
+                f"Body: {safe_body}"
+            )
+        ),
     ]
 
     labels_checked = False
@@ -127,7 +138,7 @@ def classify_mail(
         response = invoke_observed(
             llm_with_tools,
             messages,
-            operation="classification"
+            operation="classification",
         )
 
         messages.append(response)
@@ -140,7 +151,6 @@ def classify_mail(
         for tool_call in tool_calls:
 
             if isinstance(tool_call, dict):
-
                 tool_name = (
                     tool_call.get("name")
                     or tool_call.get("function", {}).get("name")
@@ -150,6 +160,7 @@ def classify_mail(
 
                 if raw_args is None and "function" in tool_call:
                     arg_str = tool_call["function"].get("arguments", "{}")
+
                     tool_args = (
                         json.loads(arg_str)
                         if isinstance(arg_str, str)
@@ -169,7 +180,6 @@ def classify_mail(
                 continue
 
             if tool_name == "create_new_label" and not labels_checked:
-
                 messages.append(
                     ToolMessage(
                         content="Error: Execute check_existing_labels first.",
@@ -179,11 +189,10 @@ def classify_mail(
                 continue
 
             try:
-
                 # OBSERVABILITY: Measure tool execution
                 result = observe_tool_call(
                     tool_name,
-                    lambda: tool_map[tool_name].invoke(tool_args)
+                    lambda: tool_map[tool_name].invoke(tool_args),
                 )
 
                 if tool_name == "check_existing_labels":
@@ -197,7 +206,6 @@ def classify_mail(
                 )
 
             except Exception as err:
-
                 messages.append(
                     ToolMessage(
                         content=f"Tool execution failed: {str(err)}",
@@ -213,7 +221,7 @@ def classify_mail(
             # OBSERVABILITY: Measure fallback tool execution
             verified_labels = observe_tool_call(
                 "check_existing_labels",
-                lambda: check_existing_labels.invoke({})
+                lambda: check_existing_labels.invoke({}),
             )
         except Exception:
             verified_labels = []
@@ -231,7 +239,11 @@ def classify_mail(
 
     final_payload = [
         SystemMessage(
-            content="Return the final email classification using the EmailClassification schema. Use only verified existing or successfully created labels."
+            content=(
+                "Return the final email classification using the "
+                "EmailClassification schema. Use only verified existing "
+                "or successfully created labels."
+            )
         ),
         HumanMessage(content=final_user_content),
     ]
@@ -241,7 +253,7 @@ def classify_mail(
         structured_llm,
         final_payload,
         operation="classification_structured_output",
-        structured_output=True
+        structured_output=True,
     )
 
 
@@ -251,7 +263,7 @@ def generate_email_reply(
     cc: list[str],
     subject: str,
     body: str,
-    user_context: str | None = None
+    user_context: str | None = None,
 ) -> EmailReply:
 
     llm = get_groq_client()
@@ -262,7 +274,6 @@ def generate_email_reply(
 
     messages = [
         SystemMessage(content=EMAIL_REPLY_PROMPT),
-
         HumanMessage(
             content=f"""
 Email ID: {email_id}
@@ -293,5 +304,5 @@ Generate an appropriate reply draft following the user's additional instructions
         structured_llm,
         messages,
         operation="reply_generation",
-        structured_output=True
+        structured_output=True,
     )
