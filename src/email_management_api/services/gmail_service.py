@@ -1,3 +1,4 @@
+
 import os
 import base64
 from pathlib import Path
@@ -6,6 +7,7 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from email.message import EmailMessage
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 load_dotenv(PROJECT_ROOT / ".env")
@@ -19,6 +21,7 @@ SCOPES = [
     "https://www.googleapis.com/auth/gmail.labels",
     "https://www.googleapis.com/auth/gmail.readonly"
 ]
+
 
 def get_gmail_service():
     if not REFRESH_TOKEN:
@@ -35,8 +38,10 @@ def get_gmail_service():
 
     return build("gmail", "v1", credentials=creds)
 
+
 def get_email_body(payload):
     """Recursively extracts the plain text body from the email payload."""
+
     # If the email is multipart, iterate through the parts
     if 'parts' in payload:
         for part in payload['parts']:
@@ -44,16 +49,19 @@ def get_email_body(payload):
                 data = part['body'].get('data')
                 if data:
                     return base64.urlsafe_b64decode(data).decode('utf-8')
+
             elif 'parts' in part:
                 # Handle nested multiparts
                 return get_email_body(part)
+
     # If the email is a single part (not multipart)
     else:
         data = payload.get('body', {}).get('data')
         if data:
             return base64.urlsafe_b64decode(data).decode('utf-8')
-            
+
     return "No plain text body found."
+
 
 def fetch_latest_emails(max_results: int = 2000):
     service = get_gmail_service()
@@ -62,7 +70,6 @@ def fetch_latest_emails(max_results: int = 2000):
     next_page_token = None
 
     while len(email_list) < max_results:
-
         remaining = max_results - len(email_list)
 
         results = service.users().messages().list(
@@ -77,7 +84,6 @@ def fetch_latest_emails(max_results: int = 2000):
             break
 
         for msg in messages:
-
             msg_data = service.users().messages().get(
                 userId="me",
                 id=msg["id"],
@@ -118,45 +124,62 @@ def fetch_latest_emails(max_results: int = 2000):
 
     return email_list
 
+
 def fetch_unread_inbox_emails(max_results: int = 5):
     service = get_gmail_service()
-    
+
     # The 'q' parameter filters exactly like the Gmail search bar
     search_query = "is:unread in:inbox"
-    
+
     results = service.users().messages().list(
-        userId="me", 
-        maxResults=max_results, 
-        q=search_query  
+        userId="me",
+        maxResults=max_results,
+        q=search_query
     ).execute()
-    
+
     messages = results.get("messages", [])
 
     if not messages:
         return []
 
     email_list = []
-    
+
     for msg in messages:
         msg_data = service.users().messages().get(
-            userId="me", id=msg["id"], format="full"
+            userId="me",
+            id=msg["id"],
+            format="full"
         ).execute()
-        
+
         payload = msg_data.get("payload", {})
         headers = payload.get("headers", [])
 
         def get_header(name: str, default: str = "") -> str:
-            return next((h["value"] for h in headers if h["name"].lower() == name.lower()), default)
-        
-        subject = next((h["value"] for h in headers if h["name"] == "Subject"), "No Subject")
-        sender = next((h["value"] for h in headers if h["name"] == "From"), "Unknown")
+            return next(
+                (h["value"] for h in headers if h["name"].lower() == name.lower()),
+                default
+            )
+
+        subject = next(
+            (h["value"] for h in headers if h["name"] == "Subject"),
+            "No Subject"
+        )
+
+        sender = next(
+            (h["value"] for h in headers if h["name"] == "From"),
+            "Unknown"
+        )
+
         message_id_header = get_header("Message-ID", "")
-        
+
         # Extract the Cc header (defaults to an empty string if no one is CC'd)
-        cc = next((h["value"] for h in headers if h["name"] == "Cc"), "")
-        
+        cc = next(
+            (h["value"] for h in headers if h["name"] == "Cc"),
+            ""
+        )
+
         body = get_email_body(payload)
-        
+
         email_list.append({
             "id": msg["id"],
             "threadId": msg_data.get("threadId") or msg.get("threadId"),
@@ -166,17 +189,20 @@ def fetch_unread_inbox_emails(max_results: int = 5):
             "cc": cc,
             "body": body
         })
-        
+
     # Optional: Reverse the list in Python if you want them ordered oldest-to-newest among these 5
-    email_list.reverse() 
-        
+    email_list.reverse()
+
     return email_list
+
 
 def get_all_labels():
     """Fetches all existing labels (folders and tags) from the Gmail account."""
+
     service = get_gmail_service()
-    
+
     results = service.users().labels().list(userId="me").execute()
+
     return results.get("labels", [])
 
 
@@ -185,24 +211,32 @@ def create_label(label_path: str):
     Creates a label or nested sub-label.
     Use forward slashes for nesting: e.g., 'Work/Invoices' or 'Personal/Finance/2026'.
     """
+
     service = get_gmail_service()
-    
+
     # Strip leading/trailing slashes and whitespace
     clean_name = label_path.strip().strip("/")
-    
+
     new_label = {
         "name": clean_name,
         "labelListVisibility": "labelShow",
         "messageListVisibility": "show"
     }
-    
+
     try:
-        created_label = service.users().labels().create(userId="me", body=new_label).execute()
+        created_label = service.users().labels().create(
+            userId="me",
+            body=new_label
+        ).execute()
+
         return created_label
+
     except HttpError as error:
         if error.resp.status == 409:
             raise ValueError(f"The label '{clean_name}' already exists.")
+
         raise ValueError(f"An error occurred while creating label: {error}")
+
 
 def create_label_hierarchy(label_path: str) -> dict:
     """
@@ -213,14 +247,26 @@ def create_label_hierarchy(label_path: str) -> dict:
       3. 'Work/Projects/ClientA'
     Returns the dict of the final (deepest) created label.
     """
+
     service = get_gmail_service()
-    
+
     # 1. Fetch existing labels to avoid redundant API calls
-    existing_labels = service.users().labels().list(userId="me").execute().get("labels", [])
-    existing_names = {label["name"].lower(): label for label in existing_labels}
+    existing_labels = service.users().labels().list(
+        userId="me"
+    ).execute().get("labels", [])
+
+    existing_names = {
+        label["name"].lower(): label
+        for label in existing_labels
+    }
 
     # 2. Split path segments: 'Work/Projects/ClientA' -> ['Work', 'Projects', 'ClientA']
-    parts = [segment.strip() for segment in label_path.strip("/").split("/") if segment.strip()]
+    parts = [
+        segment.strip()
+        for segment in label_path.strip("/").split("/")
+        if segment.strip()
+    ]
+
     if not parts:
         raise ValueError("Invalid label path provided.")
 
@@ -241,18 +287,23 @@ def create_label_hierarchy(label_path: str) -> dict:
             "labelListVisibility": "labelShow",
             "messageListVisibility": "show"
         }
-        
+
         try:
-            created = service.users().labels().create(userId="me", body=body).execute()
+            created = service.users().labels().create(
+                userId="me",
+                body=body
+            ).execute()
+
             existing_names[lookup_key] = created
             last_label_obj = created
+
         except HttpError as err:
             if err.resp.status == 409:  # Already created concurrently
                 continue
+
             raise ValueError(f"Failed to create step '{current_path}': {err}")
 
     return last_label_obj
-
 
 
 def update_email_labels(
@@ -266,6 +317,7 @@ def update_email_labels(
     Automatically creates missing labels before applying them.
     Skips the API call if there are no valid label updates.
     """
+
     service = get_gmail_service()
 
     labels_to_add = labels_to_add or []
@@ -273,6 +325,7 @@ def update_email_labels(
 
     # 1. Get all current labels
     existing_labels = get_all_labels()
+
     name_to_id = {
         label["name"].lower(): label["id"]
         for label in existing_labels
@@ -290,6 +343,7 @@ def update_email_labels(
 
         if lower_name in name_to_id:
             add_label_ids.append(name_to_id[lower_name])
+
         else:
             new_label = create_label(name.strip())
             add_label_ids.append(new_label["id"])
@@ -340,25 +394,38 @@ def update_email_labels(
         "status": "success"
     }
 
+
 def trash_email(message_id: str):
     """
-    Moves an email to the Trash. 
+    Moves an email to the Trash.
     Can be recovered within 30 days.
     Works with your current 'gmail.modify' scope.
     """
+
     service = get_gmail_service()
-    
+
     # The API returns an updated message object on success
-    response = service.users().messages().trash(userId="me", id=message_id).execute()
-    
+    response = service.users().messages().trash(
+        userId="me",
+        id=message_id
+    ).execute()
+
     return {
         "id": response["id"],
         "status": "moved_to_trash"
     }
 
 
-def _create_raw_message(to: str, subject: str, body: str, cc: str = "", bcc: str = "", thread_id: str = None) -> dict:
+def _create_raw_message(
+    to: str,
+    subject: str,
+    body: str,
+    cc: str = "",
+    bcc: str = "",
+    thread_id: str = None
+) -> dict:
     """Helper to construct an RFC 2822 compliant message payload for the Gmail API."""
+
     message = EmailMessage()
     message.set_content(body)
     message["To"] = to
@@ -366,6 +433,7 @@ def _create_raw_message(to: str, subject: str, body: str, cc: str = "", bcc: str
 
     if cc:
         message["Cc"] = cc
+
     if bcc:
         message["Bcc"] = bcc
 
@@ -375,52 +443,97 @@ def _create_raw_message(to: str, subject: str, body: str, cc: str = "", bcc: str
         message["References"] = thread_id
 
     # Gmail API requires URL-safe base64 encoded strings
-    encoded_message = base64.urlsafe_b64encode(message.as_bytes()).decode("utf-8")
-    
+    encoded_message = base64.urlsafe_b64encode(
+        message.as_bytes()
+    ).decode("utf-8")
+
     payload = {"raw": encoded_message}
+
     if thread_id:
         payload["threadId"] = thread_id
 
     return payload
 
 
-def create_draft(to: str, subject: str, body: str, cc: str = "", bcc: str = "", thread_id: str = None) -> dict:
+def create_draft(
+    to: str,
+    subject: str,
+    body: str,
+    cc: str = "",
+    bcc: str = "",
+    thread_id: str = None
+) -> dict:
     """
     Creates a new draft in Gmail without sending it.
     Can be linked to an existing conversation by passing thread_id.
     """
+
     service = get_gmail_service()
-    raw_message = _create_raw_message(to=to, subject=subject, body=body, cc=cc, bcc=bcc, thread_id=thread_id)
+
+    raw_message = _create_raw_message(
+        to=to,
+        subject=subject,
+        body=body,
+        cc=cc,
+        bcc=bcc,
+        thread_id=thread_id
+    )
 
     draft_body = {"message": raw_message}
 
     try:
-        draft = service.users().drafts().create(userId="me", body=draft_body).execute()
+        draft = service.users().drafts().create(
+            userId="me",
+            body=draft_body
+        ).execute()
+
         return {
             "draft_id": draft["id"],
             "message_id": draft["message"]["id"],
             "thread_id": draft["message"].get("threadId"),
             "status": "draft_created"
         }
+
     except HttpError as error:
         raise ValueError(f"Failed to create draft: {error}")
 
 
-def send_email(to: str, subject: str, body: str, cc: str = "", bcc: str = "", thread_id: str = None) -> dict:
+def send_email(
+    to: str,
+    subject: str,
+    body: str,
+    cc: str = "",
+    bcc: str = "",
+    thread_id: str = None
+) -> dict:
     """
     Directly sends an email through the authenticated Gmail account.
     """
+
     service = get_gmail_service()
-    raw_message = _create_raw_message(to=to, subject=subject, body=body, cc=cc, bcc=bcc, thread_id=thread_id)
+
+    raw_message = _create_raw_message(
+        to=to,
+        subject=subject,
+        body=body,
+        cc=cc,
+        bcc=bcc,
+        thread_id=thread_id
+    )
 
     try:
-        sent_message = service.users().messages().send(userId="me", body=raw_message).execute()
+        sent_message = service.users().messages().send(
+            userId="me",
+            body=raw_message
+        ).execute()
+
         return {
             "id": sent_message["id"],
             "thread_id": sent_message.get("threadId"),
             "label_ids": sent_message.get("labelIds", []),
             "status": "sent"
         }
+
     except HttpError as error:
         raise ValueError(f"Failed to send email: {error}")
 
@@ -429,17 +542,20 @@ def send_draft(draft_id: str) -> dict:
     """
     Sends an existing draft by its draft_id.
     """
+
     service = get_gmail_service()
-    
+
     try:
         sent_message = service.users().drafts().send(
-            userId="me", 
+            userId="me",
             body={"id": draft_id}
         ).execute()
+
         return {
             "id": sent_message["id"],
             "thread_id": sent_message.get("threadId"),
             "status": "draft_sent"
         }
+
     except HttpError as error:
         raise ValueError(f"Failed to send draft '{draft_id}': {error}")
